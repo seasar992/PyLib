@@ -1,0 +1,211 @@
+DATA: it_document_data  TYPE sodocchgi1,
+      it_content_text   TYPE STANDARD TABLE OF solisti1 WITH HEADER LINE,
+      it_packing_list   TYPE TABLE OF sopcklsti1 WITH HEADER LINE,
+      it_receivers      TYPE STANDARD TABLE OF somlreci1 WITH HEADER LINE,
+      lc_mail_attach    TYPE string,
+      lt_content_hex    TYPE STANDARD TABLE OF solix WITH HEADER LINE,
+      lt_object_header  TYPE STANDARD TABLE OF solisti1 WITH HEADER LINE,
+      lc_mail_xattach   TYPE xstring,
+      lv_send_all       TYPE c,
+      it_makt           LIKE TABLE OF makt WITH HEADER LINE,
+      fir_date          TYPE sy-datum,
+      mimetype          TYPE char64.
+DATA: it_itab           TYPE TABLE OF itab WITH HEADER LINE,
+      wa_itab           TYPE itab.
+
+CONSTANTS:lc_tab  TYPE c VALUE cl_bcs_convert=>gc_tab,       "excel换格符
+          lc_ctrl TYPE c VALUE cl_bcs_convert=>gc_crlf.      "excel换行符
+
+PARAMETER p_flag  TYPE c AS CHECKBOX.
+
+IF p_flag = 'X'.
+  PERFORM send_email.
+ENDIF.
+
+*&---------------------------------------------------------------------*
+*&      Form  SEND_EMAIL
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM send_email.
+  DATA sy_vline TYPE i.
+  DATA:mblnr TYPE string,   "物料凭证
+       matnr TYPE string,   "物料
+       mjahr TYPE string,   "年度
+       maktx TYPE string.   "物料描述
+
+  it_document_data-obj_descr = '邮件主题' .    "内容的简短描述
+  it_document_data-priority = '1'.             "优先次序  1~9  1：最高优先权
+  it_document_data-obj_name = 'OFFER'.
+  it_document_data-obj_langu = sy-langu.
+
+*  ****邮件正文信息
+  it_content_text = '各位好：'.
+  APPEND it_content_text.
+  it_content_text = '  此邮件为测试邮件！！！！！！！'.
+  APPEND it_content_text.
+
+  DESCRIBE TABLE it_content_text LINES sy_vline.
+  it_document_data-doc_size = 255 * ( sy_vline - 1 ) + strlen( it_content_text ).  "SAPoffice 文档的大小（用于 API1）
+
+  it_packing_list-transf_bin = space.
+  it_packing_list-head_start = 1.
+  it_packing_list-head_num = 0 .
+  it_packing_list-body_num = sy_vline.
+  it_packing_list-body_start = 1.
+  it_packing_list-doc_type = 'RAW'.
+  APPEND it_packing_list.
+
+
+***收件人信息
+  it_receivers-receiver = '收件人邮箱'.  "收件人地址
+  it_receivers-rec_type = 'U'.
+  it_receivers-com_type = 'INT'.
+  it_receivers-notif_del =  'X'.
+  it_receivers-notif_ndel = 'X'.
+  APPEND it_receivers.
+
+  CONCATENATE '物料'     lc_tab
+              '物料凭证' lc_tab
+              '物料描述' lc_tab
+              '年度'     lc_ctrl INTO lc_mail_attach.   "lc_ctrl换行符
+
+  CLEAR:mblnr, matnr, mjahr, maktx.
+  mblnr  = '7777777'.
+  matnr  = '7777777'.
+  mjahr  = '7777'.
+  maktx  = 'seven'."物料类型
+
+  CONCATENATE lc_mail_attach
+              matnr  lc_tab
+              mblnr  lc_tab
+              mjahr  lc_tab
+              maktx  lc_ctrl INTO lc_mail_attach.      "lc_ctrl换行符
+
+  CLEAR:mblnr, matnr, mjahr, maktx.
+  mblnr  = '8888888'.
+  matnr  = '8888888'.
+  mjahr  = '8888'.
+  maktx  = 'seven'."物料类型
+
+  CONCATENATE lc_mail_attach
+              matnr  lc_tab
+              mblnr  lc_tab
+              mjahr  lc_tab
+              maktx  lc_ctrl INTO lc_mail_attach.      "lc_ctrl换行符
+
+  mimetype = 'APPLICATION/MSEXCEL;CHARSET=UTF-16LE'.
+  CALL FUNCTION 'SCMS_STRING_TO_XSTRING'
+    EXPORTING
+      text       = lc_mail_attach
+      mimetype   = mimetype
+*     ENCODING   =
+   IMPORTING
+      buffer     =  lc_mail_xattach
+   EXCEPTIONS
+      failed     = 1
+      others     = 2 .
+
+  IF sy-subrc = 0.
+    CONCATENATE cl_abap_char_utilities=>byte_order_mark_little lc_mail_xattach INTO lc_mail_xattach IN BYTE MODE.
+  ENDIF.
+
+  CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+    EXPORTING
+      buffer          = lc_mail_xattach
+*    APPEND_TO_TABLE  = ' '
+*  IMPORTING
+*    OUTPUT_LENGTH    =
+    TABLES
+      binary_tab      = lt_content_hex.
+
+"不知道干啥用的
+  lt_object_header = 'Seven test'.
+  APPEND lt_object_header.
+
+  DESCRIBE TABLE lt_content_hex LINES sy_vline.
+
+  it_packing_list-transf_bin = 'X'.
+  it_packing_list-head_start = 1 .
+  it_packing_list-head_num =  0 .
+  it_packing_list-body_start = 1.
+  it_packing_list-body_num = sy_vline.
+  it_packing_list-doc_type = 'XLS'.
+  it_packing_list-doc_size = 255 * sy_vline.
+  it_packing_list-obj_name = '附件名'.
+  it_packing_list-obj_descr = it_packing_list-obj_name.
+  APPEND it_packing_list.
+
+
+"方法1  无法指定发送人邮箱
+*******  CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+*******    EXPORTING
+*******      document_data              = it_document_data
+*******      put_in_outbox              = 'X'
+*******      commit_work                = 'X'
+*******    IMPORTING
+*******      sent_to_all                = lv_send_all
+********       NEW_OBJECT_ID              =
+*******    TABLES
+*******      packing_list               = it_packing_list[]
+*******      object_header              = lt_object_header[]
+********     contents_bin               =
+*******      contents_txt               = it_content_text[]
+*******      contents_hex               = lt_content_hex[]
+********     object_para                =
+********     object_parb                =
+*******      receivers                  = it_receivers[]
+*******    EXCEPTIONS
+*******      too_many_receivers         = 1
+*******      document_not_sent          = 2
+*******      document_type_not_exist    = 3
+*******      operation_no_authorization = 4
+*******      parameter_error            = 5
+*******      x_error                    = 6
+*******      enqueue_error              = 7
+*******      others                     = 8 .
+
+"方法2  可以指定发送人邮箱
+  CALL FUNCTION 'SO_DOCUMENT_SEND_API1'
+    EXPORTING
+      document_data                    = it_document_data
+      put_in_outbox                    = 'X'
+      sender_address                   = '发件人邮箱'
+      sender_address_type              = 'INT'
+      commit_work                      = 'X'
+*     IP_ENCRYPT                       =
+*     IP_SIGN                          =
+*     IV_VSI_PROFILE                   =
+    IMPORTING
+      sent_to_all                      = lv_send_all
+*     NEW_OBJECT_ID                    =
+*     SENDER_ID                        =
+    TABLES
+      packing_list                     = it_packing_list[]
+      object_header                    = lt_object_header[]
+*     CONTENTS_BIN                     =
+      contents_txt                     = it_content_text[]
+      contents_hex                     = lt_content_hex[]
+*     OBJECT_PARA                      =
+*     OBJECT_PARB                      =
+      receivers                        = it_receivers[]
+*     ET_VSI_ERROR                     =
+    EXCEPTIONS
+      too_many_receivers               = 1
+      document_not_sent                = 2
+      document_type_not_exist          = 3
+      operation_no_authorization       = 4
+      parameter_error                  = 5
+      x_error                          = 6
+      enqueue_error                    = 7
+      others                           = 8
+            .
+  IF sy-subrc <> 0.
+*   Implement suitable error handling here
+  ELSE.
+    SUBMIT RSCONN01 WITH MODE = 'INT'
+                   WITH OUTPUT = 'X'
+                   AND RETURN.
+  ENDIF.
+
+ENDFORM.                    "SEND_EMAIL
